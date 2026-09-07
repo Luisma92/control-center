@@ -28,9 +28,16 @@ export interface Project {
   lastError: string | null
   isPinned?: boolean
   isArchived?: boolean
+  workspaceId?: string | null
   /** Cómo trata el panel al proyecto. Se deduce del contenido de la carpeta en
    *  cada escaneo; no se puede forzar a mano. */
   kind?: ProjectKind
+}
+
+export interface Workspace {
+  id: string
+  name: string
+  createdAt: string
 }
 
 export interface DetectedScript {

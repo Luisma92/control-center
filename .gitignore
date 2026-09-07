@@ -33,6 +33,9 @@ target/
 .env.*
 !.env.example
 
+# CodeGraph index
+.codegraph/
+
 # IDE & OS files
 .DS_Store
 .vscode/*

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countProjects, filterByStatus, groupProjects, projectKind, searchProjects } from '../projects'
+import { countProjects, filterByStatus, filterByWorkspace, groupProjects, projectKind, searchProjects } from '../projects'
 import type { Project } from '../../types'
 
 function proyecto(overrides: Partial<Project> & { id: string }): Project {
@@ -74,6 +74,26 @@ describe('searchProjects', () => {
     expect(searchProjects(conTildes, '3000').map(p => p.id)).toEqual(['app1'])
     expect(searchProjects(conTildes, 'pnpm').map(p => p.id)).toEqual(['app1'])
     expect(searchProjects(conTildes, 'npm run dev').map(p => p.id)).toEqual(['app2'])
+  })
+})
+
+describe('filterByWorkspace', () => {
+  const conWorkspace: Project[] = [
+    proyecto({ id: 'web', workspaceId: 'ws-a' }),
+    proyecto({ id: 'api', workspaceId: 'ws-b' }),
+    proyecto({ id: 'script' }),
+  ]
+
+  it('«todos» no recorta', () => {
+    expect(filterByWorkspace(conWorkspace, 'all').map(p => p.id)).toEqual(['web', 'api', 'script'])
+  })
+
+  it('un workspace concreto deja fuera el resto', () => {
+    expect(filterByWorkspace(conWorkspace, 'ws-a').map(p => p.id)).toEqual(['web'])
+  })
+
+  it('«sin asignar» son los que no tienen workspace', () => {
+    expect(filterByWorkspace(conWorkspace, 'ungrouped').map(p => p.id)).toEqual(['script'])
   })
 })
 

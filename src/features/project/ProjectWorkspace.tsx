@@ -6,7 +6,7 @@ import { kindMeta } from '../../lib/kindMeta'
 import { projectKind } from '../../lib/projects'
 import type { Tab } from '../../hooks/useProjectDetail'
 import type { TerminalEntry } from '../../lib/logs'
-import type { DiskReport, GitHubRepo, Project, ProjectDetail } from '../../types'
+import type { DiskReport, GitHubRepo, Project, ProjectDetail, Workspace } from '../../types'
 import { GitHubLogo } from '../../components/GitHubLogo'
 import { StatusPill } from '../../components/Status'
 import { useEnvVars } from '../../hooks/useEnvVars'
@@ -56,6 +56,8 @@ export function ProjectWorkspace({
   onDeleteProject,
   onTogglePin,
   onToggleArchive,
+  workspaces = [],
+  onAssignWorkspace,
 }: {
   detail: ProjectDetail
   gitHubRepo?: GitHubRepo
@@ -81,6 +83,8 @@ export function ProjectWorkspace({
   onDeleteProject: (project: Project) => void
   onTogglePin: (project: Project) => void
   onToggleArchive: (project: Project) => void
+  workspaces?: Workspace[]
+  onAssignWorkspace?: (workspaceId: string | null) => void
 }) {
   const { project, scan, process, recentCommands } = detail
   // La bóveda se carga con el proyecto abierto, no al pisar la pestaña: la
@@ -192,6 +196,21 @@ export function ProjectWorkspace({
                 {project.isArchived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
                 <span>{project.isArchived ? 'Archivado' : 'Archivar'}</span>
               </button>
+              {workspaces.length > 0 && onAssignWorkspace ? (
+                <select
+                  className="workspace-assign"
+                  value={project.workspaceId ?? ''}
+                  onChange={event => onAssignWorkspace(event.target.value || null)}
+                  title="Mover a workspace"
+                >
+                  <option value="">Sin workspace</option>
+                  {workspaces.map(workspace => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
             </div>
             <p style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span>{project.projectType}</span>

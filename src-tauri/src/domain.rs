@@ -25,6 +25,10 @@ pub struct Project {
     pub is_pinned: bool,
     #[serde(default)]
     pub is_archived: bool,
+    /// Grupo opcional. `None` es la bandeja sin workspace: los proyectos no
+    /// se mezclan cuando el panel filtra por uno concreto.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
     /// Cómo se trata el proyecto. Se deduce del contenido de la carpeta en cada
     /// escaneo y NO se puede forzar a mano: la naturaleza decide qué acciones
     /// ofrece el panel, y permitir contradecir al detector deja estados
@@ -241,6 +245,16 @@ pub struct RegisterProjectRequest {
     pub name: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -529,6 +529,7 @@ impl GitHubService {
             last_error: None,
             is_pinned: false,
             is_archived: false,
+            workspace_id: None,
         };
 
         Ok(project)
