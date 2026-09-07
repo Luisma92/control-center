@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { api } from '../api'
-import { countProjects, filterByStatus, groupProjects, searchProjects, type StatusFilter } from '../lib/projects'
+import { countProjects, filterByStatus, filterByWorkspace, groupProjects, searchProjects, type StatusFilter, type WorkspaceFilter } from '../lib/projects'
 import type { Project } from '../types'
 import { reportError, type NoticeKind } from './useNotices'
 
@@ -11,6 +11,7 @@ interface Options {
    *  aquí para que la lista y sus recuentos salgan siempre del mismo sitio. */
   query: string
   statusFilter: StatusFilter
+  workspaceFilter: WorkspaceFilter
 }
 
 /**
@@ -22,7 +23,7 @@ interface Options {
  * bandera se escribía en dos sitios, mantenerlos de acuerdo costaba veinte
  * líneas por cada acción.
  */
-export function useProjects({ notify, onSelect, query, statusFilter }: Options) {
+export function useProjects({ notify, onSelect, query, statusFilter, workspaceFilter }: Options) {
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
   // El sondeo periódico devuelve casi siempre la misma carga útil: comparar la
@@ -91,6 +92,19 @@ export function useProjects({ notify, onSelect, query, statusFilter }: Options) 
     [loadProjects, notify, patch]
   )
 
+  const assignWorkspace = useCallback(
+    async (project: Project, workspaceId: string | null) => {
+      patch(project.id, { workspaceId })
+      try {
+        await api.setProjectWorkspace(project.id, workspaceId)
+      } catch (error) {
+        reportError(error)
+      }
+      await loadProjects()
+    },
+    [loadProjects, patch]
+  )
+
   const refreshAll = useCallback(async () => {
     const refreshed = await api.refreshAllProjects()
     signature.current = JSON.stringify(refreshed)
@@ -100,7 +114,8 @@ export function useProjects({ notify, onSelect, query, statusFilter }: Options) 
 
   // Los contadores y los grupos de la barra lateral se calculan sobre el
   // resultado de la búsqueda para reflejar los proyectos encontrados.
-  const searchedProjects = useMemo(() => searchProjects(projects, query), [projects, query])
+  const scopedProjects = useMemo(() => filterByWorkspace(projects, workspaceFilter), [projects, workspaceFilter])
+  const searchedProjects = useMemo(() => searchProjects(scopedProjects, query), [scopedProjects, query])
   const groups = useMemo(() => groupProjects(searchedProjects), [searchedProjects])
   const visibleProjects = useMemo(() => filterByStatus(searchedProjects, statusFilter), [searchedProjects, statusFilter])
   const stats = useMemo(() => countProjects(searchedProjects), [searchedProjects])
@@ -111,6 +126,7 @@ export function useProjects({ notify, onSelect, query, statusFilter }: Options) 
     loadProjects,
     togglePin,
     toggleArchive,
+    assignWorkspace,
     refreshAll,
     groups,
     searchedProjects,

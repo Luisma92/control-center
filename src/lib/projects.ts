@@ -6,6 +6,7 @@
 import type { Project, ProjectKind, ProjectStatus } from '../types'
 
 export type StatusFilter = ProjectStatus | 'pinned' | 'archived' | 'all'
+export type WorkspaceFilter = 'all' | 'ungrouped' | string
 
 export interface ProjectStats {
   total: number
@@ -65,6 +66,13 @@ export function searchProjects(projects: Project[], query: string): Project[] {
     )
     return tokens.every(token => haystack.includes(token))
   })
+}
+
+/** `all` deja la lista igual. Un id concreto o `ungrouped` recorta el resto. */
+export function filterByWorkspace(projects: Project[], filter: WorkspaceFilter): Project[] {
+  if (filter === 'all') return projects
+  if (filter === 'ungrouped') return projects.filter(project => !project.workspaceId)
+  return projects.filter(project => project.workspaceId === filter)
 }
 
 /** Los archivados solo aparecen cuando se piden explícitamente. */

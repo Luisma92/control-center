@@ -9,22 +9,26 @@ import {
   HardDrive,
   KeyRound,
   LayoutDashboard,
+  Layers,
+  Pencil,
   Pin,
   Plus,
   Radio,
   Search,
   Settings2,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
 
-import { type StatusFilter } from './lib/projects'
+import { type StatusFilter, type WorkspaceFilter } from './lib/projects'
 import { useEnvVault } from './hooks/useEnvVault'
 import { useGitHub } from './hooks/useGitHub'
 import { reportError, useNotices } from './hooks/useNotices'
 import { useProjectDetail } from './hooks/useProjectDetail'
 import { useProjects } from './hooks/useProjects'
+import { useWorkspaces } from './hooks/useWorkspaces'
 import { useProjectSync } from './hooks/useProjectSync'
 import { GitHubLogo } from './components/GitHubLogo'
 import { Modal } from './components/Modal'
@@ -56,6 +60,9 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [workspaceFilter, setWorkspaceFilter] = useState<WorkspaceFilter>('all')
+  const [workspaceEditor, setWorkspaceEditor] = useState<null | 'create' | 'rename' | 'delete'>(null)
+  const [workspaceName, setWorkspaceName] = useState('')
   const [showArchivedSidebar, setShowArchivedSidebar] = useState(false)
   const [modal, setModal] = useState<Modal>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -72,10 +79,15 @@ export default function App() {
   const selectFirst = useCallback((projectId: string) => setSelectedId(projectId), [])
 
   const {
-    projects, loading, loadProjects, togglePin, toggleArchive, refreshAll,
+    projects, loading, loadProjects, togglePin, toggleArchive, assignWorkspace, refreshAll,
     groups: { pinnedProjects, activeProjects, archivedProjects },
     visibleProjects, stats,
-  } = useProjects({ notify, onSelect: selectFirst, query: filter, statusFilter })
+  } = useProjects({ notify, onSelect: selectFirst, query: filter, statusFilter, workspaceFilter })
+  const { workspaces, createWorkspace, renameWorkspace, deleteWorkspace } = useWorkspaces(notify)
+  const ungroupedProjects = useMemo(
+    () => projects.filter(project => !project.workspaceId && !project.isArchived),
+    [projects],
+  )
 
   const {
     detail, tab, setTab, logs, setLogs, disk, setDisk, cleanup, setCleanup, loadDetail, selectedIdRef,
@@ -253,9 +265,76 @@ export default function App() {
     setModal('settings')
   }
 
+  const selectedWorkspace = workspaces.find(workspace => workspace.id === workspaceFilter)
+
+  const closeWorkspaceEditor = () => {
+    setWorkspaceEditor(null)
+    setWorkspaceName('')
+  }
+
+  const handleCreateWorkspace = async () => {
+    const name = workspaceName.trim()
+    if (!name) return
+    try {
+      const workspace = await createWorkspace(name)
+      setWorkspaceFilter(workspace.id)
+      closeWorkspaceEditor()
+    } catch (error) {
+      reportError(error)
+    }
+  }
+
+  const handleRenameWorkspace = async () => {
+    if (!selectedWorkspace) return
+    const name = workspaceName.trim()
+    if (!name) return
+    try {
+      await renameWorkspace(selectedWorkspace.id, name)
+      closeWorkspaceEditor()
+    } catch (error) {
+      reportError(error)
+    }
+  }
+
+  const handleDeleteWorkspace = async () => {
+    if (!selectedWorkspace) return
+    try {
+      await deleteWorkspace(selectedWorkspace.id, selectedWorkspace.name)
+      setWorkspaceFilter('all')
+      closeWorkspaceEditor()
+      await loadProjects()
+    } catch (error) {
+      reportError(error)
+    }
+  }
+
+  const assignUngroupedSelect = (project: Project) => {
+    if (project.workspaceId || workspaces.length === 0) return null
+    return (
+      <select
+        className="workspace-assign-mini"
+        value=""
+        title="Añadir a un workspace"
+        onClick={event => event.stopPropagation()}
+        onChange={event => {
+          event.stopPropagation()
+          if (event.target.value) void assignWorkspace(project, event.target.value)
+        }}
+      >
+        <option value="">Workspace</option>
+        {workspaces.map(workspace => (
+          <option key={workspace.id} value={workspace.id}>
+            {workspace.name}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
   const register = async (path: string, name: string, tags: string[]) => {
     await action('register', async () => {
-      const project = await api.registerProject(path, name, tags)
+      const workspaceId = workspaceFilter !== 'all' && workspaceFilter !== 'ungrouped' ? workspaceFilter : null
+      const project = await api.registerProject(path, name, tags, workspaceId)
       setSelectedId(project.id)
       setModal(null)
       notify(`${project.name} quedó registrado localmente.`)
@@ -393,6 +472,106 @@ export default function App() {
           <Plus size={16} /> Registrar proyecto <kbd>⌘N</kbd>
         </button>
 
+        <div className="workspace-switcher">
+          {workspaceEditor === 'create' || workspaceEditor === 'rename' ? (
+            <form
+              className="workspace-switcher-form"
+              onSubmit={event => {
+                event.preventDefault()
+                void (workspaceEditor === 'create' ? handleCreateWorkspace() : handleRenameWorkspace())
+              }}
+            >
+              <input
+                autoFocus
+                value={workspaceName}
+                onChange={event => setWorkspaceName(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Escape') closeWorkspaceEditor()
+                }}
+                placeholder={workspaceEditor === 'create' ? 'Nombre del workspace' : 'Nuevo nombre'}
+              />
+              <button type="submit" title="Guardar" disabled={!workspaceName.trim()}>
+                <Check size={14} />
+              </button>
+              <button type="button" title="Cancelar" onClick={closeWorkspaceEditor}>
+                <X size={14} />
+              </button>
+            </form>
+          ) : workspaceEditor === 'delete' && selectedWorkspace ? (
+            <div className="workspace-switcher-form">
+              <span className="workspace-delete-hint">¿Eliminar «{selectedWorkspace.name}»?</span>
+              <button type="button" title="Confirmar" onClick={() => void handleDeleteWorkspace()}>
+                <Check size={14} />
+              </button>
+              <button type="button" title="Cancelar" onClick={closeWorkspaceEditor}>
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <Layers size={14} />
+              <select
+                value={workspaceFilter}
+                onChange={event => setWorkspaceFilter(event.target.value)}
+                title="Filtrar proyectos por workspace"
+              >
+                <option value="all">Todos los proyectos</option>
+                <option value="ungrouped">Sin workspace</option>
+                {workspaces.map(workspace => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspace.name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setWorkspaceName('')
+                  setWorkspaceEditor('create')
+                }}
+                title="Crear workspace"
+              >
+                <Plus size={14} />
+              </button>
+              {selectedWorkspace ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWorkspaceName(selectedWorkspace.name)
+                      setWorkspaceEditor('rename')
+                    }}
+                    title="Renombrar workspace"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button type="button" onClick={() => setWorkspaceEditor('delete')} title="Eliminar workspace">
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              ) : null}
+            </>
+          )}
+        </div>
+        {selectedWorkspace && ungroupedProjects.length > 0 ? (
+          <select
+            className="workspace-add-project"
+            value=""
+            title="Añadir un proyecto ya registrado a este workspace"
+            onChange={event => {
+              const project = ungroupedProjects.find(item => item.id === event.target.value)
+              if (project) void assignWorkspace(project, selectedWorkspace.id)
+            }}
+          >
+            <option value="">Añadir proyecto…</option>
+            {ungroupedProjects.map(project => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
         <nav className="sidebar-nav">
           <button
             className={viewMode === 'local' && !selectedId ? 'nav-item active' : 'nav-item'}
@@ -472,6 +651,7 @@ export default function App() {
                         <StatusDot status={project.status} />
                         <span className="project-nav-name">{project.name}</span>
                       </button>
+                      {assignUngroupedSelect(project)}
                       <button
                         type="button"
                         className="sidebar-pin-btn active"
@@ -522,14 +702,15 @@ export default function App() {
                       <StatusDot status={project.status} />
                       <span className="project-nav-name">{project.name}</span>
                     </button>
-                    <button
-                      type="button"
-                      className="sidebar-pin-btn"
-                      onClick={e => handleTogglePin(project, e)}
-                      title="Fijar proyecto al inicio"
-                    >
-                      <Pin size={12} />
-                    </button>
+                      {assignUngroupedSelect(project)}
+                      <button
+                        type="button"
+                        className="sidebar-pin-btn"
+                        onClick={e => handleTogglePin(project, e)}
+                        title="Fijar proyecto al inicio"
+                      >
+                        <Pin size={12} />
+                      </button>
                     {onGithub ? (
                       <GitHubLogo size={13} color="var(--accent-cyan)" className="github-indicator-icon" />
                     ) : (
@@ -720,6 +901,8 @@ export default function App() {
               onDeleteProject={setDeleteCandidate}
               onTogglePin={handleTogglePin}
               onToggleArchive={handleToggleArchive}
+              workspaces={workspaces}
+              onAssignWorkspace={workspaceId => void assignWorkspace(activeDetail.project, workspaceId)}
             />
           ) : viewMode === 'vault' ? (
             <EnvVaultView

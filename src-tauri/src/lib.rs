@@ -142,6 +142,11 @@ pub fn run() {
             commands::projects::unregister_project,
             commands::projects::toggle_pin_project,
             commands::projects::toggle_archive_project,
+            commands::workspaces::list_workspaces,
+            commands::workspaces::create_workspace,
+            commands::workspaces::rename_workspace,
+            commands::workspaces::delete_workspace,
+            commands::workspaces::set_project_workspace,
             // variables de entorno
             commands::env_vars::get_project_env_vars,
             commands::env_vars::import_env_vars,

@@ -7,3 +7,4 @@ pub mod github;
 pub mod projects;
 pub mod run;
 pub mod settings;
+pub mod workspaces;

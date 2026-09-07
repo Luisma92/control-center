@@ -24,6 +24,7 @@ import type {
   PublishToGitHubRequest,
   RunProjectRequest,
   SafeOffloadResult,
+  Workspace,
 } from './types'
 
 export const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -654,6 +655,7 @@ function persistMockProjects() {
 }
 
 let memoryProjects = loadMockProjects()
+let memoryWorkspaces: Workspace[] = []
 
 // ---------------------------------------------------------------- bóveda simulada
 // Sin Tauri no hay SQLite, así que la bóveda vive en `localStorage` con las
@@ -725,8 +727,8 @@ export const api = {
     return new Promise(res => setTimeout(() => res([...memoryProjects]), 50))
   },
 
-  registerProject: async (path: string, name?: string, tags: string[] = []): Promise<Project> => {
-    if (isTauri) return invoke<Project>('register_project', { request: { path, name: name || null, tags } })
+  registerProject: async (path: string, name?: string, tags: string[] = [], workspaceId?: string | null): Promise<Project> => {
+    if (isTauri) return invoke<Project>('register_project', { request: { path, name: name || null, tags, workspaceId: workspaceId || null } })
     const folderName = name || path.split('/').filter(Boolean).pop() || 'nuevo-proyecto'
     const newProj: Project = {
       id: `proj-${Date.now()}`,
@@ -747,6 +749,7 @@ export const api = {
       tags,
       createdAt: new Date().toISOString(),
       lastError: null,
+      workspaceId: workspaceId || null,
     }
     memoryProjects.unshift(newProj)
     persistMockProjects()
@@ -890,7 +893,51 @@ export const api = {
     return isArchived
   },
 
+  listWorkspaces: async (): Promise<Workspace[]> => {
+    if (isTauri) return invoke<Workspace[]>('list_workspaces')
+    return [...memoryWorkspaces]
+  },
 
+  createWorkspace: async (name: string): Promise<Workspace> => {
+    if (isTauri) return invoke<Workspace>('create_workspace', { name })
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('El nombre del workspace no puede estar vacío.')
+    if (memoryWorkspaces.some(workspace => workspace.name.toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error('Ya existe un workspace con ese nombre.')
+    }
+    const workspace: Workspace = { id: `ws-${Date.now()}`, name: trimmed, createdAt: new Date().toISOString() }
+    memoryWorkspaces.push(workspace)
+    return workspace
+  },
+
+  renameWorkspace: async (workspaceId: string, name: string): Promise<Workspace> => {
+    if (isTauri) return invoke<Workspace>('rename_workspace', { workspaceId, name })
+    const workspace = memoryWorkspaces.find(item => item.id === workspaceId)
+    if (!workspace) throw new Error('No se encontró el workspace.')
+    const trimmed = name.trim()
+    if (!trimmed) throw new Error('El nombre del workspace no puede estar vacío.')
+    workspace.name = trimmed
+    return workspace
+  },
+
+  deleteWorkspace: async (workspaceId: string): Promise<void> => {
+    if (isTauri) return invoke<void>('delete_workspace', { workspaceId })
+    memoryWorkspaces = memoryWorkspaces.filter(workspace => workspace.id !== workspaceId)
+    memoryProjects.forEach(project => {
+      if (project.workspaceId === workspaceId) project.workspaceId = null
+    })
+    persistMockProjects()
+  },
+
+  setProjectWorkspace: async (projectId: string, workspaceId: string | null): Promise<string | null> => {
+    if (isTauri) return invoke<string | null>('set_project_workspace', { projectId, workspaceId })
+    const project = memoryProjects.find(item => item.id === projectId)
+    if (project) {
+      project.workspaceId = workspaceId
+      persistMockProjects()
+    }
+    return workspaceId
+  },
 
   runProject: async (request: RunProjectRequest): Promise<ProcessInfo> => {
     if (isTauri) return invoke<ProcessInfo>('run_project', { request })

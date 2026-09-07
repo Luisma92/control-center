@@ -36,6 +36,7 @@ pub fn register_project(request: RegisterProjectRequest, state: tauri::State<'_,
         local_url: scan.local_url, port: scan.port, status: ProjectStatus::Stopped, last_used_at: None,
         disk_size_bytes: report.total_bytes, tags: request.tags.into_iter().map(|tag| tag.trim().to_string()).filter(|tag| !tag.is_empty()).collect(),
         created_at: Utc::now().to_rfc3339(), last_error: None, is_pinned: false, is_archived: false,
+        workspace_id: request.workspace_id.filter(|id| !id.trim().is_empty()),
     };
     if is_project_running(&project).is_some() {
         project.status = ProjectStatus::Running;

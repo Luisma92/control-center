@@ -272,6 +272,105 @@ code, kbd, pre, .mono {
   color: #064e2e;
 }
 
+.workspace-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin: 0 0 12px;
+  padding: 0 2px;
+}
+
+.workspace-switcher select {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-muted);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-switcher button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-muted);
+}
+
+.workspace-switcher button:hover {
+  color: var(--text-primary);
+}
+
+.workspace-assign {
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-muted);
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-switcher-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+}
+
+.workspace-switcher-form input {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-muted);
+  background: var(--bg-surface-2);
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.workspace-delete-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.workspace-add-project,
+.workspace-assign-mini {
+  width: 100%;
+  height: 28px;
+  margin: 0 0 10px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-muted);
+  background: var(--bg-surface-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-assign-mini {
+  width: auto;
+  max-width: 92px;
+  margin: 0;
+  height: 22px;
+  font-size: 10px;
+  padding: 0 4px;
+}
+
 .nav-group {
   border-bottom: 1px solid var(--border-subtle);
   padding-bottom: 14px;

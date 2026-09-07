@@ -41,6 +41,11 @@ impl Storage {
         self.connection.execute_batch(
             "
             PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS workspaces (
+              id TEXT PRIMARY KEY,
+              name TEXT NOT NULL,
+              created_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS projects (
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
@@ -62,7 +67,8 @@ impl Storage {
               last_error TEXT,
               is_pinned INTEGER NOT NULL DEFAULT 0,
               is_archived INTEGER NOT NULL DEFAULT 0,
-              kind TEXT NOT NULL DEFAULT 'service'
+              kind TEXT NOT NULL DEFAULT 'service',
+              workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL
             );
             CREATE TABLE IF NOT EXISTS command_history (
               id TEXT PRIMARY KEY,
@@ -116,6 +122,7 @@ impl Storage {
         let _ = self.connection.execute("ALTER TABLE projects ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0", []);
         let _ = self.connection.execute("ALTER TABLE projects ADD COLUMN disk_size_bytes INTEGER NOT NULL DEFAULT 0", []);
         let _ = self.connection.execute("ALTER TABLE projects ADD COLUMN kind TEXT NOT NULL DEFAULT 'service'", []);
+        let _ = self.connection.execute("ALTER TABLE projects ADD COLUMN workspace_id TEXT", []);
         Ok(())
     }
 
@@ -176,6 +183,118 @@ impl Storage {
         Ok(is_archived)
     }
 
+    pub fn list_workspaces(&self) -> Result<Vec<crate::domain::Workspace>, String> {
+        let mut statement = self.connection.prepare("SELECT id, name, created_at FROM workspaces ORDER BY name COLLATE NOCASE")
+            .map_err(|error| format!("No se pudo consultar workspaces: {error}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(crate::domain::Workspace {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            })
+            .map_err(|error| format!("No se pudo leer workspaces: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("No se pudo convertir workspaces: {error}"))
+    }
+
+    pub fn create_workspace(&self, name: &str) -> Result<crate::domain::Workspace, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("El nombre del workspace no puede estar vacío.".into());
+        }
+        let exists: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM workspaces WHERE name = ?1 COLLATE NOCASE",
+            params![name],
+            |row| row.get(0),
+        ).map_err(|error| format!("No se pudo comprobar el workspace: {error}"))?;
+        if exists > 0 {
+            return Err("Ya existe un workspace con ese nombre.".into());
+        }
+        let workspace = crate::domain::Workspace {
+            id: uuid::Uuid::new_v4().to_string(),
+            name: name.to_string(),
+            created_at: Utc::now().to_rfc3339(),
+        };
+        self.connection.execute(
+            "INSERT INTO workspaces (id, name, created_at) VALUES (?1, ?2, ?3)",
+            params![workspace.id, workspace.name, workspace.created_at],
+        ).map_err(|error| format!("No se pudo crear el workspace: {error}"))?;
+        Ok(workspace)
+    }
+
+    pub fn rename_workspace(&self, id: &str, name: &str) -> Result<crate::domain::Workspace, String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("El nombre del workspace no puede estar vacío.".into());
+        }
+        let exists: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM workspaces WHERE name = ?1 COLLATE NOCASE AND id != ?2",
+            params![name, id],
+            |row| row.get(0),
+        ).map_err(|error| format!("No se pudo comprobar el workspace: {error}"))?;
+        if exists > 0 {
+            return Err("Ya existe un workspace con ese nombre.".into());
+        }
+        let changed = self.connection.execute(
+            "UPDATE workspaces SET name = ?2 WHERE id = ?1",
+            params![id, name],
+        ).map_err(|error| format!("No se pudo renombrar el workspace: {error}"))?;
+        if changed == 0 {
+            return Err("No se encontró el workspace.".into());
+        }
+        self.connection.query_row(
+            "SELECT id, name, created_at FROM workspaces WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok(crate::domain::Workspace {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    created_at: row.get(2)?,
+                })
+            },
+        ).map_err(|error| format!("No se pudo leer el workspace: {error}"))
+    }
+
+    pub fn delete_workspace(&self, id: &str) -> Result<(), String> {
+        // Bases antiguas no tienen FK: desasignar a mano para no dejar ids huérfanos.
+        self.connection.execute(
+            "UPDATE projects SET workspace_id = NULL WHERE workspace_id = ?1",
+            params![id],
+        ).map_err(|error| format!("No se pudieron desasignar los proyectos: {error}"))?;
+        let changed = self.connection.execute("DELETE FROM workspaces WHERE id = ?1", params![id])
+            .map_err(|error| format!("No se pudo eliminar el workspace: {error}"))?;
+        if changed == 0 {
+            return Err("No se encontró el workspace.".into());
+        }
+        Ok(())
+    }
+
+    pub fn set_project_workspace(&self, project_id: &str, workspace_id: Option<&str>) -> Result<Option<String>, String> {
+        if let Some(workspace_id) = workspace_id {
+            let exists: i64 = self.connection.query_row(
+                "SELECT COUNT(*) FROM workspaces WHERE id = ?1",
+                params![workspace_id],
+                |row| row.get(0),
+            ).map_err(|error| format!("No se pudo comprobar el workspace: {error}"))?;
+            if exists == 0 {
+                return Err("No se encontró el workspace.".into());
+            }
+            self.connection.execute(
+                "UPDATE projects SET workspace_id = ?2 WHERE id = ?1",
+                params![project_id, workspace_id],
+            ).map_err(|error| format!("No se pudo asignar el workspace: {error}"))?;
+            Ok(Some(workspace_id.to_string()))
+        } else {
+            self.connection.execute(
+                "UPDATE projects SET workspace_id = NULL WHERE id = ?1",
+                params![project_id],
+            ).map_err(|error| format!("No se pudo quitar el workspace: {error}"))?;
+            Ok(None)
+        }
+    }
+
     pub fn get_project(&self, id: &str) -> Result<Project, String> {
         self.connection.query_row("SELECT * FROM projects WHERE id = ?1", params![id], map_project)
             .map_err(|error| match error {
@@ -186,15 +305,15 @@ impl Storage {
 
     pub fn insert_project(&self, project: &Project) -> Result<(), String> {
         self.connection.execute(
-            "INSERT INTO projects (id, name, path, canonical_path, project_type, frameworks_json, package_manager, dev_command, build_command, test_command, local_url, port, status, last_used_at, disk_size_bytes, tags_json, created_at, last_error, is_pinned, is_archived, kind)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            "INSERT INTO projects (id, name, path, canonical_path, project_type, frameworks_json, package_manager, dev_command, build_command, test_command, local_url, port, status, last_used_at, disk_size_bytes, tags_json, created_at, last_error, is_pinned, is_archived, kind, workspace_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 project.id, project.name, project.path, project.canonical_path, project.project_type,
                 json(&project.frameworks), project.package_manager, project.dev_command, project.build_command,
                 project.test_command, project.local_url, project.port, project.status.as_str(), project.last_used_at,
                 project.disk_size_bytes, json(&project.tags), project.created_at, project.last_error,
                 if project.is_pinned { 1 } else { 0 }, if project.is_archived { 1 } else { 0 },
-                project.kind.as_str(),
+                project.kind.as_str(), project.workspace_id,
             ],
         ).map_err(|error| {
             if error.to_string().contains("UNIQUE") { "Esta carpeta ya está registrada usando su ruta canónica.".into() }
@@ -543,6 +662,7 @@ fn map_project(row: &Row<'_>) -> rusqlite::Result<Project> {
         tags: serde_json::from_str(&tags).unwrap_or_default(), created_at: row.get("created_at")?, last_error: row.get("last_error")?,
         is_pinned: is_pinned != 0,
         is_archived: is_archived != 0,
+        workspace_id: row.get("workspace_id").ok().flatten(),
         kind: row.get::<_, String>("kind").map(|value| ProjectKind::from_db(&value)).unwrap_or_default(),
     })
 }
@@ -639,6 +759,7 @@ mod tests {
             last_error: None,
             is_pinned: false,
             is_archived: false,
+            workspace_id: None,
             kind: ProjectKind::Service,
         }
     }
@@ -856,5 +977,21 @@ mod tests {
         let storage = Storage::open(&directory.path().join("registry.sqlite3")).expect("open storage");
         let error = storage.adopt_env_vars(&["cualquiera".into()], "no-existe", None).expect_err("debe fallar");
         assert!(error.contains("No se encontró el proyecto"), "{error}");
+    }
+
+    #[test]
+    fn workspaces_group_projects_and_delete_unassigns_them() {
+        let directory = tempdir().expect("tempdir");
+        let storage = Storage::open(&directory.path().join("registry.sqlite3")).expect("open storage");
+        storage.insert_project(&fixture("p1", directory.path().to_str().expect("path"))).expect("insert");
+
+        let workspace = storage.create_workspace("Cliente A").expect("create");
+        assert_eq!(storage.list_workspaces().expect("list").len(), 1);
+        storage.set_project_workspace("p1", Some(&workspace.id)).expect("assign");
+        assert_eq!(storage.get_project("p1").expect("get").workspace_id.as_deref(), Some(workspace.id.as_str()));
+
+        storage.delete_workspace(&workspace.id).expect("delete");
+        assert!(storage.list_workspaces().expect("list").is_empty());
+        assert_eq!(storage.get_project("p1").expect("get").workspace_id, None);
     }
 }
