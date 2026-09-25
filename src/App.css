@@ -5586,22 +5586,101 @@ button.github-link-pill {
 
 .orphan-restore-form {
   display: flex;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
+  margin-top: 12px;
 }
 
-.orphan-restore-form label {
+.orphan-restore-field {
   display: grid;
-  gap: 5px;
-  min-width: 200px;
+  gap: 6px;
+  flex: 0 1 180px;
+  min-width: 160px;
 }
 
-.orphan-restore-form span {
+.orphan-restore-field.grow {
+  flex: 1 1 260px;
+}
+
+.orphan-restore-field > span {
   font-size: 10.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-tertiary);
+}
+
+/* Campo con icono delante: el select nativo se queda sin apariencia propia
+   para que se vea igual que el input de al lado. */
+.orphan-restore-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.orphan-restore-select > svg:first-child {
+  position: absolute;
+  left: 11px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.orphan-restore-select select,
+.orphan-restore-select input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px 0 32px;
+  color: var(--text-primary);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-0);
+  font-size: 13px;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.orphan-restore-select input {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.orphan-restore-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.orphan-restore-select select:has(option[value=""]:checked) {
+  color: var(--text-muted);
+}
+
+.orphan-restore-select select option {
+  color: var(--text-primary);
+  background: var(--bg-surface-1);
+}
+
+.orphan-restore-select input::placeholder {
+  color: var(--text-muted);
+}
+
+.orphan-restore-select select:hover,
+.orphan-restore-select input:hover {
+  border-color: var(--border-prominent);
+}
+
+.orphan-restore-select select:focus,
+.orphan-restore-select input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+  background: var(--bg-surface-1);
+}
+
+.orphan-restore-chevron {
+  position: absolute;
+  right: 11px;
+  color: var(--text-tertiary);
+  pointer-events: none;
 }
 
 /* --------------------------------------------- aviso del modal de borrado */

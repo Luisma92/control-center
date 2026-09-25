@@ -5,6 +5,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  FileText,
   FolderOpen,
   FolderX,
   KeyRound,
@@ -73,6 +74,10 @@ export function EnvVaultView({
   // Las huérfanas se reparten por proyecto de origen en vez de ir en un bloque
   // único: restaurar y descartar se deciden por proyecto, no en masa.
   const orphanGroups = useMemo(() => groupByOrigin(orphans), [orphans])
+  const sortedProjects = useMemo(
+    () => [...projects].sort((left, right) => left.name.localeCompare(right.name, 'es', { sensitivity: 'base' })),
+    [projects]
+  )
 
   const total = snapshot?.total ?? 0
   const groupKeys = useMemo(
@@ -333,7 +338,10 @@ export function EnvVaultView({
                                     ? null
                                     : {
                                         origin: group.origin,
-                                        projectId: projects[0]?.id ?? '',
+                                        // Sin destino por omisión: preseleccionar el primero
+                                        // hacía que «Restaurar» sin tocar nada mandase
+                                        // las variables a un proyecto que nadie eligió.
+                                        projectId: '',
                                         scope: group.vars[0].scope,
                                       }
                                 )
@@ -362,28 +370,53 @@ export function EnvVaultView({
                         {isRestoring && restoring && (
                           <div className="vault-group-panel">
                             <div className="env-confirm">
+                              <div>
+                                <strong>Restaurar las variables de «{group.origin}»</strong>
+                                <p>
+                                  Vuelven a la bóveda del proyecto que elijas. El fichero en disco no se
+                                  toca: escríbelo después desde su pestaña «Entorno».
+                                </p>
+                              </div>
                               <div className="orphan-restore-form">
-                                <label>
+                                <label className="orphan-restore-field grow">
                                   <span>Proyecto de destino</span>
-                                  <select
-                                    value={restoring.projectId}
-                                    onChange={event => setRestoring({ ...restoring, projectId: event.target.value })}
-                                  >
-                                    {projects.map(project => (
-                                      <option key={project.id} value={project.id}>
-                                        {project.name}
+                                  <div className="orphan-restore-select">
+                                    <FolderOpen size={14} />
+                                    <select
+                                      value={restoring.projectId}
+                                      onChange={event => setRestoring({ ...restoring, projectId: event.target.value })}
+                                    >
+                                      <option value="" disabled>
+                                        Elige un proyecto…
                                       </option>
-                                    ))}
-                                  </select>
+                                      {sortedProjects.map(project => (
+                                        <option key={project.id} value={project.id}>
+                                          {project.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown size={14} className="orphan-restore-chevron" />
+                                  </div>
                                 </label>
-                                <label>
+                                <label className="orphan-restore-field">
                                   <span>Fichero</span>
-                                  <input
-                                    value={restoring.scope}
-                                    spellCheck={false}
-                                    placeholder=".env"
-                                    onChange={event => setRestoring({ ...restoring, scope: event.target.value })}
-                                  />
+                                  <div className="orphan-restore-select">
+                                    <FileText size={14} />
+                                    <input
+                                      value={restoring.scope}
+                                      spellCheck={false}
+                                      placeholder=".env"
+                                      list={`orphan-scopes-${group.origin}`}
+                                      onChange={event => setRestoring({ ...restoring, scope: event.target.value })}
+                                    />
+                                  </div>
+                                  <datalist id={`orphan-scopes-${group.origin}`}>
+                                    {[...new Set([...group.vars.map(variable => variable.scope), '.env', '.env.local'])].map(
+                                      scope => (
+                                        <option key={scope} value={scope} />
+                                      )
+                                    )}
+                                  </datalist>
                                 </label>
                               </div>
                               <div className="env-confirm-actions">
@@ -393,7 +426,9 @@ export function EnvVaultView({
                                 <button
                                   className="primary"
                                   disabled={!restoring.projectId || !!busy}
+                                  title={restoring.projectId ? undefined : 'Elige primero el proyecto de destino'}
                                   onClick={() => {
+                                    if (!restoring.projectId) return
                                     const target = projects.find(project => project.id === restoring.projectId)
                                     onAdopt(
                                       { ids, projectId: restoring.projectId, scope: restoring.scope.trim() || null },
