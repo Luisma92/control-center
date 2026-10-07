@@ -1,5 +1,5 @@
-import { AlertTriangle, AppWindow, Archive, ArchiveRestore, ArrowLeft, ArrowUpRight, Bot, ChevronRight, CircleStop, FileCode2, FolderOpen, GitFork, HardDrive, KeyRound, LayoutDashboard, LoaderCircle, PackageOpen, Pin, Play, RefreshCw, RotateCcw, Settings2, SquareTerminal, Terminal, Trash2 } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { AlertTriangle, AppWindow, Archive, ArchiveRestore, ArrowLeft, ArrowUpRight, Bot, ChevronRight, CircleStop, FileCode2, FolderOpen, GitFork, HardDrive, KeyRound, LayoutDashboard, LoaderCircle, PackageOpen, Pin, Play, RefreshCw, RotateCcw, SquareTerminal, Terminal, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../../api'
 import { formatDate } from '../../lib/format'
 import { kindMeta } from '../../lib/kindMeta'
@@ -13,7 +13,6 @@ import { StatusPill } from '../../components/Status'
 import { useEnvVars } from '../../hooks/useEnvVars'
 import { useInstallActivity } from '../../hooks/useInstallActivity'
 import { formatDurationText } from '../../lib/format'
-import { ConfigurationTab } from './tabs/ConfigurationTab'
 import { DependenciesTab } from './tabs/DependenciesTab'
 import { EnvironmentTab } from './tabs/EnvironmentTab'
 import { DiskTab } from './tabs/DiskTab'
@@ -34,7 +33,6 @@ const tabs: Array<{ id: Tab; label: string; icon: typeof LayoutDashboard }> = [
   { id: 'disk', label: 'Disco y limpieza', icon: HardDrive },
   { id: 'scripts', label: 'Scripts', icon: FileCode2 },
   { id: 'environment', label: 'Entorno', icon: KeyRound },
-  { id: 'configuration', label: 'Configuración', icon: Settings2 },
 ]
 
 export function ProjectWorkspace({
@@ -94,6 +92,24 @@ export function ProjectWorkspace({
   // insignia de «claves sin proteger» tiene que poder avisar antes de que nadie
   // entre a mirar.
   const env = useEnvVars({ projectId: project.id, notify: onNotify })
+  const [gitReloadToken, setGitReloadToken] = useState(0)
+
+  /**
+   * «Actualizar» reescanea el proyecto y recarga, además, el estado de la
+   * pestaña que se está viendo.
+   *
+   * El reescaneo siempre ocurrió, pero cada pestaña guarda su propio estado
+   * —bóveda, git, disco— fuera de `loadDetail`, así que desde Entorno o Git el
+   * botón no cambiaba nada en pantalla y parecía muerto. Se refresca solo lo
+   * visible: traer también git y disco estando en Resumen dispararía llamadas
+   * de red y un recorrido del árbol que nadie ha pedido.
+   */
+  const handleRefresh = () => {
+    onRefresh()
+    if (tab === 'environment') void env.reload()
+    else if (tab === 'git') setGitReloadToken(token => token + 1)
+    else if (tab === 'disk') onDisk()
+  }
   // La instalación es un proceso largo lanzado a espaldas de la interfaz: el
   // panel la sigue a partir del historial y de la salida del gestor, y avisa
   // cuando termina en vez de dejar que la pantalla cambie sola.
@@ -162,7 +178,12 @@ export function ProjectWorkspace({
           <strong>{project.name}</strong>
         </div>
         <div className="header-actions">
-          <button className="secondary" onClick={onRefresh} disabled={!!busy}>
+          <button
+            className="secondary"
+            onClick={handleRefresh}
+            disabled={!!busy}
+            title="Reescanear el proyecto y recargar esta pestaña"
+          >
             <RefreshCw size={15} className={busy === 'refresh' ? 'spin' : ''} /> Actualizar
           </button>
           {project.localUrl && servesOverHttp && (
@@ -429,6 +450,7 @@ export function ProjectWorkspace({
           gitHubRepo={gitHubRepo}
           onNotify={onNotify}
           onReloadProject={onRefresh}
+          reloadToken={gitReloadToken}
         />
       )}
       {tab === 'processes' && (
@@ -442,12 +464,15 @@ export function ProjectWorkspace({
       )}
       {tab === 'dependencies' && (
         <DependenciesTab
+          project={project}
           scan={scan}
           onRun={onRun}
           busy={busy}
           install={install}
           onCancelInstall={onStop}
           onOpenLogs={tabsVisibles.some(t => t.id === 'processes') ? () => setTab('processes') : undefined}
+          onNotify={onNotify}
+          onReloadProject={onRefresh}
         />
       )}
       {tab === 'disk' && (
@@ -477,7 +502,6 @@ export function ProjectWorkspace({
           onCopy={env.copyAsEnv}
         />
       )}
-      {tab === 'configuration' && <ConfigurationTab project={project} scan={scan} onNotify={onNotify} />}
     </>
   )
 }

@@ -123,6 +123,18 @@ pub struct DeclaredDependency {
     pub source: String,
 }
 
+/// Resultado de auditar las dependencias declaradas frente al código fuente.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DependencyAuditResult {
+    /// Nombres de las dependencias declaradas que no se encontraron en uso.
+    pub unused: Vec<String>,
+    /// Cuántos archivos de código fueron analizados en el proyecto.
+    pub total_scanned_files: usize,
+    /// Marca de tiempo de la auditoría.
+    pub timestamp: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectScan {
@@ -384,6 +396,8 @@ pub struct PublishToGitHubRequest {
     pub repo_name: String,
     pub description: Option<String>,
     pub is_private: bool,
+    #[serde(default)]
+    pub topics: Option<Vec<String>>,
 }
 
 /// Una variable de entorno guardada en la bóveda local.
@@ -438,6 +452,37 @@ pub struct EnvFileInfo {
     pub differing: Vec<String>,
     /// Claves que solo están en la bóveda: aparecerían al escribir el fichero.
     pub only_in_vault: Vec<String>,
+}
+
+/// Un grupo de la bóveda global: las variables de un proyecto registrado, o
+/// el bloque de las que perdieron el suyo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvVaultGroup {
+    /// `None` solo en el grupo de huérfanas.
+    pub project_id: Option<String>,
+    pub project_name: String,
+    pub project_path: Option<String>,
+    /// La carpeta sigue estando en el disco. Un proyecto registrado cuyo
+    /// volumen no está montado sigue teniendo sus variables aquí: es
+    /// precisamente cuando más falta hace poder copiarlas.
+    pub available: bool,
+    pub secret_count: usize,
+    pub vars: Vec<EnvVar>,
+}
+
+/// Fotografía completa de la bóveda, con todo lo guardado agrupado por dueño.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvVaultSnapshot {
+    /// Proyectos por nombre y, siempre al final, las huérfanas.
+    pub groups: Vec<EnvVaultGroup>,
+    pub total: usize,
+    pub orphan_count: usize,
+    /// Filas que esta carga acaba de rescatar porque apuntaban a un proyecto
+    /// que ya no existe. Es lo que convierte «Actualizar» en algo más que un
+    /// recargado de la lista.
+    pub reconciled: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

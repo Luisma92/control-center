@@ -1,3 +1,4 @@
+pub mod deps_audit;
 pub mod disk;
 pub mod domain;
 pub mod env_vars;
@@ -102,6 +103,9 @@ pub(crate) fn trusted_project_root(project: &Project) -> Result<PathBuf, String>
     let root = Path::new(&project.canonical_path);
     let canonical = std::fs::canonicalize(root).map_err(|_| format!("La carpeta registrada ya no está disponible: {}", project.path))?;
     if canonical != root {
+        if canonical.to_string_lossy().eq_ignore_ascii_case(&root.to_string_lossy()) {
+            return Ok(canonical);
+        }
         return Err("Operación bloqueada: la ruta canónica del proyecto cambió. Vuelve a registrar la carpeta para continuar.".into());
     }
     if !canonical.is_dir() { return Err("Operación bloqueada: la ruta registrada no es una carpeta.".into()); }
@@ -147,13 +151,18 @@ pub fn run() {
             commands::workspaces::rename_workspace,
             commands::workspaces::delete_workspace,
             commands::workspaces::set_project_workspace,
+            // dependencias
+            commands::dependencies::audit_project_dependencies,
+            commands::dependencies::remove_project_dependency,
             // variables de entorno
             commands::env_vars::get_project_env_vars,
             commands::env_vars::import_env_vars,
             commands::env_vars::save_env_var,
             commands::env_vars::delete_env_vars,
             commands::env_vars::write_env_file,
+            commands::env_vars::list_env_vault,
             commands::env_vars::list_orphan_env_vars,
+            commands::env_vars::count_env_vars,
             commands::env_vars::count_orphan_env_vars,
             commands::env_vars::adopt_env_vars,
             commands::env_vars::export_env_vars,
@@ -189,7 +198,58 @@ pub fn run() {
             commands::git::project_git_commit,
             commands::git::project_git_commit_and_push,
             commands::git::publish_project_to_github,
+            // clipboard
+            commands::clipboard::copy_to_clipboard,
+            commands::clipboard::read_from_clipboard,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Dev Command Center");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn trusted_project_root_allows_case_differences_on_case_preserving_filesystem() {
+        let dir = tempdir().expect("tempdir");
+        let canonical_dir = dir.path().canonicalize().expect("canonicalize");
+        let canonical_str = canonical_dir.to_string_lossy().to_string();
+        let mut project = domain::Project {
+            id: "p1".into(),
+            name: "Test".into(),
+            path: canonical_str.clone(),
+            canonical_path: canonical_str.clone(),
+            project_type: "Static Web".into(),
+            kind: domain::ProjectKind::Service,
+            frameworks: vec![],
+            package_manager: None,
+            dev_command: None,
+            build_command: None,
+            test_command: None,
+            local_url: None,
+            port: None,
+            status: domain::ProjectStatus::Stopped,
+            last_used_at: None,
+            disk_size_bytes: 0,
+            tags: vec![],
+            created_at: "".into(),
+            last_error: None,
+            is_pinned: false,
+            is_archived: false,
+        };
+
+        // Exact match
+        let root = trusted_project_root(&project).expect("trusted root");
+        assert_eq!(root, canonical_dir);
+
+        // Case difference (if filesystem is case-insensitive, e.g. macOS APFS)
+        let upper_canonical = canonical_str.to_uppercase();
+        if std::fs::canonicalize(&upper_canonical).is_ok() {
+            project.canonical_path = upper_canonical;
+            let root = trusted_project_root(&project).expect("trusted root case match");
+            assert_eq!(root, canonical_dir);
+        }
+    }
 }

@@ -1,47 +1,77 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '../api'
-import type { AdoptEnvVarsRequest, EnvVar } from '../types'
+import { copyText } from '../lib/clipboard'
+import type { AdoptEnvVarsRequest, EnvVar, EnvVaultSnapshot } from '../types'
 import type { NoticeKind } from './useNotices'
 
 /**
- * Variables huérfanas: las que quedaron en la bóveda cuando su proyecto se
- * borró, se desregistró o se liberó con Safe Offload.
+ * Bóveda global: todo lo guardado, agrupado por proyecto, con las huérfanas
+ * —las que quedaron sueltas al borrar, desregistrar o liberar su proyecto— como
+ * un grupo más al final.
  *
- * El contador se carga aparte de la lista y desde el arranque, porque es lo que
+ * El contador de huérfanas se carga aparte y desde el arranque, porque es lo que
  * pinta la insignia de la barra lateral: sin él nadie se enteraría de que hay
  * credenciales esperando a ser rescatadas o limpiadas.
  */
 export function useEnvVault(notify: (text: string, kind: NoticeKind) => void) {
-  const [orphans, setOrphans] = useState<EnvVar[]>([])
+  const [snapshot, setSnapshot] = useState<EnvVaultSnapshot | null>(null)
   const [count, setCount] = useState(0)
+  // El total decide si la bóveda se ofrece en la barra lateral; el de huérfanas
+  // es el de la insignia, que avisa de lo que pide atención.
+  const [totalCount, setTotalCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
 
   const loadCount = useCallback(async () => {
     try {
-      setCount(await api.countOrphanEnvVars())
+      const [orphanCount, total] = await Promise.all([api.countOrphanEnvVars(), api.countEnvVars()])
+      setCount(orphanCount)
+      setTotalCount(total)
     } catch {
       // Un fallo al contar no debe teñir de rojo el arranque de la app: la
       // insignia simplemente no aparece.
     }
   }, [])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const list = await api.listOrphanEnvVars()
-      setOrphans(list)
-      setCount(list.length)
-    } catch (error) {
-      notify(error instanceof Error ? error.message : String(error), 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [notify])
+  /**
+   * `silencioso` distingue el recargado que sigue a una acción —que ya avisó de
+   * lo suyo— de pulsar «Actualizar», donde el aviso es la única señal de que el
+   * botón hizo algo.
+   */
+  const load = useCallback(
+    async (silencioso = true) => {
+      setLoading(true)
+      try {
+        const next = await api.listEnvVault()
+        setSnapshot(next)
+        setCount(next.orphanCount)
+        setTotalCount(next.total)
+        if (!silencioso) {
+          const proyectos = next.groups.filter(group => group.projectId).length
+          notify(
+            next.reconciled
+              ? `${next.total} variables en ${proyectos} proyecto(s). ${next.reconciled} recuperada(s) de proyectos que ya no existen.`
+              : `${next.total} variables en ${proyectos} proyecto(s), ${next.orphanCount} sin proyecto.`,
+            'success'
+          )
+        }
+      } catch (error) {
+        notify(error instanceof Error ? error.message : String(error), 'error')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [notify]
+  )
 
   useEffect(() => {
     void loadCount()
   }, [loadCount])
+
+  const orphans = useMemo<EnvVar[]>(
+    () => snapshot?.groups.find(group => group.projectId === null)?.vars ?? [],
+    [snapshot]
+  )
 
   const adopt = useCallback(
     async (request: AdoptEnvVarsRequest, projectName: string) => {
@@ -78,7 +108,7 @@ export function useEnvVault(notify: (text: string, kind: NoticeKind) => void) {
   const copyAsEnv = useCallback(
     async (ids: string[]) => {
       try {
-        await navigator.clipboard.writeText(await api.exportEnvVars(null, ids))
+        await copyText(await api.exportEnvVars(null, ids))
         notify(`${ids.length} ${ids.length === 1 ? 'variable copiada' : 'variables copiadas'} al portapapeles`, 'success')
       } catch (error) {
         notify(error instanceof Error ? error.message : String(error), 'error')
@@ -87,5 +117,5 @@ export function useEnvVault(notify: (text: string, kind: NoticeKind) => void) {
     [notify]
   )
 
-  return { orphans, count, loading, busy, load, loadCount, adopt, discard, copyAsEnv }
+  return { snapshot, orphans, count, totalCount, loading, busy, load, loadCount, adopt, discard, copyAsEnv }
 }

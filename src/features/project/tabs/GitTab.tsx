@@ -5,18 +5,21 @@ import { canCommit, commitCounterState, selectedPaths, toggleExcluded } from '..
 import { formatRelative } from '../../../lib/format'
 import type { GitHubRepo, GitStatusInfo, Project } from '../../../types'
 import { GitHubLogo } from '../../../components/GitHubLogo'
-import { PublishToGitHub, normalizarNombreRepo } from './PublishToGitHub'
+import { PublishToGitHub, normalizarNombreRepo, toGithubTopic } from './PublishToGitHub'
 
 export function GitTab({
   project,
   gitHubRepo,
   onNotify,
   onReloadProject,
+  reloadToken = 0,
 }: {
   project: Project
   gitHubRepo?: GitHubRepo
   onNotify: (text: string, kind: 'success' | 'error' | 'info') => void
   onReloadProject: () => void
+  /** Cambia cuando «Actualizar» del proyecto se pulsa con esta pestaña abierta. */
+  reloadToken?: number
 }) {
   const [gitStatus, setGitStatus] = useState<GitStatusInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,6 +32,25 @@ export function GitTab({
   const [publishName, setPublishName] = useState(project.name)
   const [publishDesc, setPublishDesc] = useState('')
   const [publishPrivate, setPublishPrivate] = useState(false)
+
+  const initialTopics = useMemo(() => {
+    const list: string[] = []
+    const add = (raw: string) => {
+      const topic = toGithubTopic(raw)
+      if (topic && !list.includes(topic) && topic !== 'github') {
+        list.push(topic)
+      }
+    }
+    for (const f of project.frameworks ?? []) add(f)
+    for (const t of project.tags ?? []) add(t)
+    return list.slice(0, 20)
+  }, [project.frameworks, project.tags])
+
+  const [publishTopics, setPublishTopics] = useState<string[]>(initialTopics)
+
+  useEffect(() => {
+    setPublishTopics(initialTopics)
+  }, [initialTopics])
 
   const changes = gitStatus?.uncommittedChanges ?? []
   const changedPaths = useMemo(() => changes.map(file => file.path), [changes])
@@ -68,6 +90,19 @@ export function GitTab({
   useEffect(() => {
     void loadGitStatus()
   }, [loadGitStatus])
+
+  // El «Actualizar» de la cabecera reescanea el proyecto, pero el estado de git
+  // vive aquí dentro: sin esto la pestaña se quedaba con la foto anterior y el
+  // botón parecía no hacer nada. Se ignora el valor inicial porque el efecto de
+  // arriba ya carga al montar.
+  const primerToken = useRef(true)
+  useEffect(() => {
+    if (primerToken.current) {
+      primerToken.current = false
+      return
+    }
+    void loadGitStatus()
+  }, [reloadToken, loadGitStatus])
 
   // Al abrir la pestaña se comprueba una vez en segundo plano: si falla la red o
   // el token, la pestaña sigue siendo útil con los datos locales y no se
@@ -135,6 +170,7 @@ export function GitTab({
         repoName: normalizarNombreRepo(publishName) || normalizarNombreRepo(project.name),
         description: publishDesc.trim() || undefined,
         isPrivate: publishPrivate,
+        topics: publishTopics,
       })
       onNotify(res.message, 'success')
       await loadGitStatus()
@@ -180,6 +216,8 @@ export function GitTab({
             setPrivado={setPublishPrivate}
             usuario={gitHubRepo?.fullName.split('/')[0]}
             publicando={busy === 'publish'}
+            topics={publishTopics}
+            setTopics={setPublishTopics}
             onSubmit={handlePublish}
           />
         </div>
@@ -500,6 +538,8 @@ export function GitTab({
                 setPrivado={setPublishPrivate}
                 usuario={gitHubRepo?.fullName.split('/')[0]}
                 publicando={busy === 'publish'}
+                topics={publishTopics}
+                setTopics={setPublishTopics}
                 onSubmit={handlePublish}
               />
             </div>

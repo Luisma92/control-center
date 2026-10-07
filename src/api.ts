@@ -4,8 +4,11 @@ import type {
   AdoptEnvVarsRequest,
   CleanupPreview,
   CloneRepoRequest,
+  DependencyAuditResult,
   DiskReport,
   EnvVar,
+  EnvVaultGroup,
+  EnvVaultSnapshot,
   ImportEnvRequest,
   ImportEnvResult,
   ProjectEnvVars,
@@ -898,6 +901,21 @@ export const api = {
     return [...memoryWorkspaces]
   },
 
+  auditDependencies: async (projectId: string): Promise<DependencyAuditResult> => {
+    if (isTauri) return invoke<DependencyAuditResult>('audit_project_dependencies', { projectId })
+    return {
+      unused: [],
+      totalScannedFiles: 10,
+      timestamp: new Date().toISOString(),
+    }
+  },
+
+  removeDependency: async (projectId: string, dependencyName: string): Promise<string> => {
+    if (isTauri) return invoke<string>('remove_project_dependency', { projectId, dependencyName })
+    return `Dependencia «${dependencyName}» eliminada correctamente.`
+  },
+
+
   createWorkspace: async (name: string): Promise<Workspace> => {
     if (isTauri) return invoke<Workspace>('create_workspace', { name })
     const trimmed = name.trim()
@@ -1328,9 +1346,40 @@ export const api = {
     throw new Error('Escribir ficheros del proyecto requiere la aplicación de escritorio.')
   },
 
+  listEnvVault: async (): Promise<EnvVaultSnapshot> => {
+    if (isTauri) return invoke<EnvVaultSnapshot>('list_env_vault')
+    const groups: EnvVaultGroup[] = memoryProjects
+      .map(project => ({
+        projectId: project.id,
+        projectName: project.name,
+        projectPath: project.path,
+        available: true,
+        vars: memoryEnvVars.filter(variable => variable.projectId === project.id),
+      }))
+      .filter(group => group.vars.length > 0)
+      .map(group => ({ ...group, secretCount: group.vars.filter(variable => variable.isSecret).length }))
+    const orphans = memoryEnvVars.filter(variable => variable.projectId === null)
+    if (orphans.length) {
+      groups.push({
+        projectId: null,
+        projectName: 'Sin proyecto',
+        projectPath: null,
+        available: false,
+        secretCount: orphans.filter(variable => variable.isSecret).length,
+        vars: orphans,
+      })
+    }
+    return { groups, total: memoryEnvVars.length, orphanCount: orphans.length, reconciled: 0 }
+  },
+
   listOrphanEnvVars: async (): Promise<EnvVar[]> => {
     if (isTauri) return invoke<EnvVar[]>('list_orphan_env_vars')
     return memoryEnvVars.filter(variable => variable.projectId === null)
+  },
+
+  countEnvVars: async (): Promise<number> => {
+    if (isTauri) return invoke<number>('count_env_vars')
+    return memoryEnvVars.length
   },
 
   countOrphanEnvVars: async (): Promise<number> => {

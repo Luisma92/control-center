@@ -324,8 +324,23 @@ impl Storage {
 
     pub fn refresh_project_metadata(&self, project: &Project) -> Result<(), String> {
         self.connection.execute(
-            "UPDATE projects SET project_type=?2, frameworks_json=?3, package_manager=?4, dev_command=?5, build_command=?6, test_command=?7, local_url=?8, port=?9, disk_size_bytes=?10, kind=?11 WHERE id=?1",
-            params![project.id, project.project_type, json(&project.frameworks), project.package_manager, project.dev_command, project.build_command, project.test_command, project.local_url, project.port, project.disk_size_bytes, project.kind.as_str()],
+            "UPDATE projects SET name=?2, path=?3, canonical_path=?4, project_type=?5, frameworks_json=?6, package_manager=?7, dev_command=?8, build_command=?9, test_command=?10, local_url=?11, port=?12, disk_size_bytes=?13, kind=?14 WHERE id=?1",
+            params![
+                project.id,
+                project.name,
+                project.path,
+                project.canonical_path,
+                project.project_type,
+                json(&project.frameworks),
+                project.package_manager,
+                project.dev_command,
+                project.build_command,
+                project.test_command,
+                project.local_url,
+                project.port,
+                project.disk_size_bytes,
+                project.kind.as_str(),
+            ],
         ).map_err(|error| format!("No se pudo actualizar los metadatos del proyecto: {error}"))?;
         Ok(())
     }
@@ -453,11 +468,58 @@ impl Storage {
             .map_err(|error| format!("No se pudo convertir la bóveda de variables huérfanas: {error}"))
     }
 
+    /// Cuántas variables hay guardadas en total. Es lo que decide si la bóveda
+    /// aparece en la barra lateral: antes se usaba el recuento de huérfanas, y
+    /// con eso la vista global era inalcanzable para quien no hubiera borrado
+    /// nunca un proyecto.
+    pub fn count_env_vars(&self) -> Result<usize, String> {
+        self.connection
+            .query_row("SELECT COUNT(*) FROM project_env_vars", [], |row| row.get::<_, i64>(0))
+            .map(|count| count.max(0) as usize)
+            .map_err(|error| format!("No se pudo contar las variables de la bóveda: {error}"))
+    }
+
     pub fn count_orphan_env_vars(&self) -> Result<usize, String> {
         self.connection
             .query_row("SELECT COUNT(*) FROM project_env_vars WHERE project_id IS NULL", [], |row| row.get::<_, i64>(0))
             .map(|count| count.max(0) as usize)
             .map_err(|error| format!("No se pudo contar las variables huérfanas: {error}"))
+    }
+
+    /// Toda la bóveda: las variables vivas y las huérfanas, sin filtrar. El
+    /// agrupado por proyecto lo hace el comando, que es quien tiene la lista de
+    /// proyectos a mano.
+    pub fn list_all_env_vars(&self) -> Result<Vec<EnvVar>, String> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT * FROM project_env_vars ORDER BY scope, key COLLATE NOCASE")
+            .map_err(|error| format!("No se pudo consultar la bóveda de variables: {error}"))?;
+        let rows = statement
+            .query_map([], map_env_var)
+            .map_err(|error| format!("No se pudo leer la bóveda de variables: {error}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("No se pudo convertir la bóveda de variables: {error}"))
+    }
+
+    /// Marca como huérfanas las filas que apuntan a un proyecto que ya no está
+    /// en la tabla.
+    ///
+    /// La clave ajena es `ON DELETE SET NULL`, así que el camino normal —borrar
+    /// el proyecto desde el panel— ya las deja bien. Esto recoge lo que se
+    /// escapó: bases creadas antes de que la clave ajena existiera, o filas
+    /// escritas con `PRAGMA foreign_keys` apagado. Una fila así es invisible en
+    /// toda la aplicación: no sale en la bóveda porque su `project_id` no es
+    /// `NULL`, y no sale en el proyecto porque el proyecto ya no existe.
+    pub fn reconcile_orphan_env_vars(&self) -> Result<usize, String> {
+        self.connection
+            .execute(
+                "UPDATE project_env_vars
+                 SET project_id = NULL, orphaned_at = COALESCE(orphaned_at, ?1)
+                 WHERE project_id IS NOT NULL
+                   AND project_id NOT IN (SELECT id FROM projects)",
+                params![Utc::now().to_rfc3339()],
+            )
+            .map_err(|error| format!("No se pudo reconciliar la bóveda de variables: {error}"))
     }
 
     pub fn get_env_var(&self, id: &str) -> Result<EnvVar, String> {
@@ -835,6 +897,25 @@ mod tests {
         rescanned.kind = ProjectKind::Service;
         storage.refresh_project_metadata(&rescanned).expect("refresh");
         assert_eq!(storage.get_project("p1").expect("get project").kind, ProjectKind::Service);
+    }
+
+    #[test]
+    fn the_name_and_path_are_updated_by_a_rescan() {
+        let directory = tempdir().expect("tempdir");
+        let storage = Storage::open(&directory.path().join("registry.sqlite3")).expect("open storage");
+        let project = fixture("p1", directory.path().to_str().expect("path"));
+        storage.insert_project(&project).expect("insert project");
+
+        let mut rescanned = storage.get_project("p1").expect("get project");
+        rescanned.name = "nuevo-nombre".to_string();
+        rescanned.path = "/ruta/nueva".to_string();
+        rescanned.canonical_path = "/ruta/nueva".to_string();
+        storage.refresh_project_metadata(&rescanned).expect("refresh");
+
+        let updated = storage.get_project("p1").expect("get project");
+        assert_eq!(updated.name, "nuevo-nombre");
+        assert_eq!(updated.path, "/ruta/nueva");
+        assert_eq!(updated.canonical_path, "/ruta/nueva");
     }
 
     /// WAL es lo que permite que el servidor MCP y la app usen el mismo fichero
